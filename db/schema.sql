@@ -1,74 +1,100 @@
-CREATE TABLE cars
+CREATE SCHEMA offers_schema;
+
+CREATE TABLE offer
 (
-	car_id BIGINT NOT NULL PRIMARY KEY,
-    make TEXT,
-    model TEXT,
-    color TEXT,
-    body_type TEXT,
-    engine_type TEXT,
-    engine_capacity INTEGER,
-    engine_power_kw INTEGER,
-    engine_power_hp INTEGER,
-    mileage INTEGER,
-    transmission_type TEXT,
-    year_of_issue INTEGER,
-    vin TEXT,
-    first_registration DATE,
-    equipment TEXT[],
-    image_urls TEXT[],
+    offer_id                           TEXT NOT NULL  PRIMARY KEY,
+    model                              TEXT,
+    title                              TEXT,
+    engine_capacity                    INTEGER,
+    engine_power_kw                    INTEGER,
+    engine_power_hp                    INTEGER,
+    mileage                            INTEGER,
+    year_of_issue                      INTEGER,
+    vin                                TEXT,
+    original_price                     NUMERIC,
+    tax_deductible                     BOOLEAN,
+    first_registration                 DATE,
+    publication_create_date            TIMESTAMP DEFAULT now(),
+    publication_update_date            TIMESTAMP DEFAULT now(),
+    available_now                      BOOLEAN,
+    publication_type                   TEXT,
+    equipment                          TEXT[],
+    image_urls                         TEXT[],
+    description                        TEXT,
+    source_url                         TEXT,
+    city                               TEXT,
+    country                            TEXT,
+    make_id                            TEXT,
+    color_id                           TEXT,
+    body_type_id                       TEXT,
+    engine_type_id                     TEXT,
+    transmission_type_id               TEXT,
+    publication_type_id                TEXT,
+    seller_id						   TEXT,
+    CONSTRAINT offer_make_fk FOREIGN KEY make_id REFERENCES make (make_id),
+    CONSTRAINT offer_color_fk FOREIGN KEY color_id REFERENCES color (color_id),
+    CONSTRAINT offer_body_fk FOREIGN KEY body_id REFERENCES body (body_id),
+    CONSTRAINT offer_engine_fk FOREIGN KEY engine_type_id REFERENCES engine_type (engine_type_id),
+    CONSTRAINT offer_transmission_fk FOREIGN KEY transmission_type_id REFERENCES transmission_type (transmission_type_id),
+    CONSTRAINT offer_publication_fk FOREIGN KEY publication_type_id REFERENCES publication_type (publication_type_id),
+    CONSTRAINT offer_seller_fk FOREIGN KEY seller_id REFERENCES seller (seller_id)
 );
 
-CREATE TABLE offers
+CREATE TABLE seller
 (
-    offer_id BIGINT NOT NULL PRIMARY KEY,
-    title TEXT,
-    original_price NUMERIC,
-    tax_deductible BOOLEAN,
-    publication_create_date TIMESTAMP DEFAULT now(),
-    publication_update_date TIMESTAMP DEFAULT now(),
-    available_now BOOLEAN,
-    publication_type TEXT,
-    description TEXT,
-    source_url TEXT,
-    city TEXT,
-    country TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    seller_id BIGINT,
-    car_id BIGINT,
-    CONSTRAINT (offers_car_id_fk) FOREIGN KEY (car_id) REFERENCES cars (car_id),
+	seller_id                          TEXT NOT NULL PRIMARY KEY,
+    seller_company_name                TEXT,
+    seller_contact_name                TEXT,
+    seller_sell_id                     TEXT,
+    seller_type                        TEXT,
+    seller_email                       TEXT,
+    seller_phone_formatted_numbers     TEXT[],
+    seller_address_id                  BIGINT,
+    seller_dealer_region               TEXT,
+    seller_dealer_homepage_url         TEXT,
+    seller_dealer_review_count         INTEGER,
+    seller_dealer_rating_average       DOUBLE PRECISION,
+    seller_dealer_recommend_percentage DOUBLE PRECISION,
+    seller_link_car_methods            TEXT,
+    dealer_contact_person_phone        TEXT,
+    dealer_contact_person_email        TEXT,
+    dealer_contact_person_name         TEXT,
+    dealer_contact_person_position     TEXT,
+    created_at                         TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-CREATE TABLE sells
+CREATE TABLE make
 (
-	sell_id BIGINT NOT NULL PRIMARY KEY,
-	car_id BIGINT,
-	offer_id BIGINT,
-	CONSTRAINT (sells_car_id_fk) FOREIGN KEY (car_id) REFERENCES cars(car_id),
-	CONSTRAINT (sells_offer_id_fk) FOREIGN KEY (offer_id) REFERENCES offers(offer_id)
+make_id TEXT NOT NULL PRIMARY KEY,
+make_title TEXT
 );
 
-CREATE TABLE sellers
+CREATE TABLE body
 (
-	seller_id BIGINT NOT NULL PRIMARY KEY,
-	seller_company_name TEXT,
-	seller_contact_name TEXT,
-	seller_type TEXT,
-	seller_email TEXT,
-	seller_phone_formatted_numbers TEXT[],
-	seller_address_id BIGINT,
-	seller_dealer_region TEXT,
-	seller_dealer_homepage_url TEXT,
-	seller_dealer_review_count INTEGER,
-	seller_dealer_rating_average DOUBLE PRECISION,
-	seller_dealer_recommend_percentage DOUBLE PRECISION,
-	seller_link_car_methods TEXT,
-	dealer_contact_person_phone TEXT,
-	dealer_contact_person_email TEXT,
-	dealer_contact_person_name TEXT,
-	dealer_contact_person_position TEXT,
-	seller_sell_id TEXT,
-	CONSTRAINT (sellers_sell_id_fk) FOREIGN KEY (seller_sell_id) REFERENCES sells (sell_id)
+body_id TEXT NOT NULL PRIMARY KEY,
+body_type TEXT
 );
 
-ALTER TABLE offers
-ADD CONSTRAINT (offers_seller_id_fk) FOREIGN KEY (seller_id) REFERENCES sellers (seller_id);
+CREATE TABLE color
+(
+color_id TEXT NOT NULL PRIMARY KEY,
+color TEXT
+);
+
+CREATE TABLE engine_type
+(
+engine_type_id TEXT, 
+engine_type TEXT
+);
+
+CREATE TABLE transmission_type
+(
+transmission_type_id TEXT NOT NULL PRIMARY KEY,
+transmissiob_type TEXT
+);
+
+CREATE TABLE publication_type 
+(
+publication_type_id TEXT NOT NULL PRIMARY KEY,
+publication_type TEXT
+);
