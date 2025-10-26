@@ -24,11 +24,13 @@ CREATE TABLE seller (seller_id BIGSERIAL NOT NULL PRIMARY KEY,
 	seller_type_id BIGINT,
 	CONSTRAINT seller_type_fk FOREIGN KEY (seller_type_id) REFERENCES seller_type (seller_type_id));
 
-CREATE TABLE model (model_id BIGSERIAL NOT NULL PRIMARY KEY,
-	model_name TEXT);
-
 CREATE TABLE make (make_id BIGSERIAL NOT NULL PRIMARY KEY,
-	make_title TEXT);
+	make_name TEXT);
+
+CREATE TABLE model (model_id BIGSERIAL NOT NULL PRIMARY KEY,
+	model_name TEXT,
+	make_id BIGINT,
+	CONSTRAINT model_make_fk FOREIGN KEY (make_id) REFERENCES make (make_id));
 
 CREATE TABLE body_type (body_id BIGSERIAL NOT NULL PRIMARY KEY,
 	body TEXT);
@@ -40,7 +42,7 @@ CREATE TABLE engine_type (engine_type_id BIGSERIAL NOT NULL PRIMARY KEY,
 	engine_type TEXT);
 
 CREATE TABLE transmission_type (transmission_type_id BIGSERIAL NOT NULL PRIMARY KEY,
-	transmissiob_type TEXT);
+	transmission_type TEXT);
 
 CREATE TABLE publication_type (publication_type_id BIGSERIAL NOT NULL PRIMARY KEY,
 	publication TEXT);
