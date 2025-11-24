@@ -39,10 +39,10 @@ CREATE TABLE color (color_id BIGSERIAL NOT NULL PRIMARY KEY,
 	color_name TEXT);
 
 CREATE TABLE engine_type (engine_type_id BIGSERIAL NOT NULL PRIMARY KEY,
-	engine_type TEXT);
+	engine TEXT);
 
 CREATE TABLE transmission_type (transmission_type_id BIGSERIAL NOT NULL PRIMARY KEY,
-	transmission_type TEXT);
+	transmission TEXT);
 
 CREATE TABLE publication_type (publication_type_id BIGSERIAL NOT NULL PRIMARY KEY,
 	publication TEXT);

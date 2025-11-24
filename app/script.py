@@ -1,32 +1,32 @@
+import os
 import psycopg2
+from dotenv import load_dotenv
 
-# Настройка соединения
+load_dotenv()
+
 source_conn = psycopg2.connect(
-    host="pinobyte-cars-hub-postgre-sql.postgres.database.azure.com",
-    dbname="postgres",
-    user="readonly_user",
-    password="12345678",
+    host=os.getenv("source_host"),
+    dbname=os.getenv("source_dbname"),
+    user=os.getenv("source_user"),
+    password=os.getenv("source_password"),
     sslmode="require"
 )
 
-# Соединение с целевой базой данных
 target_conn = psycopg2.connect(
-    host="localhost",
-    dbname="offers_db",
-    user="postgres",
-    password="Z@)5b#JYzmm3.vN"
+    host=os.getenv("target_host"),
+    dbname=os.getenv("target_dbname"),
+    user=os.getenv("target_user"),
+    password=os.getenv("target_password")
 )
 
 source_cur = source_conn.cursor()
 target_cur = target_conn.cursor()
 
 try:
-    # 1. Получить уникальные значения для make, model, color, body_type из source_offers
     source_cur.execute("""SELECT DISTINCT make, model, color, body_type, engine_type,
                           publication_type, seller_type, transmission_type  FROM source.offers;""")
-    unique_values = source_cur.fetchall()  # список кортежей (make, model, color, body_type)
+    unique_values = source_cur.fetchall()
 
-    # Маппинг и вставка для make
     make_map = {}
     for make_name in set(row[0] for row in unique_values):
         target_cur.execute("SELECT make_id FROM make WHERE make_name=%s;", (make_name,))
@@ -40,10 +40,8 @@ try:
             )
             make_map[make_name] = target_cur.fetchone()[0]
 
-    # Маппинг и вставка для model
     model_map = {}
     for model_name, make_name in set((row[1], row[0]) for row in unique_values):
-        # Проверяем, есть ли модель с таким именем и make
         target_cur.execute(
             "SELECT model_id FROM model WHERE model_name=%s AND make_id=%s;",
             (model_name, make_map[make_name])
@@ -58,7 +56,6 @@ try:
             )
             model_map[(model_name, make_name)] = target_cur.fetchone()[0]
 
-    # Маппинг и вставка для color
     color_map = {}
     for color_name in set(row[2] for row in unique_values):
         target_cur.execute("SELECT color_id FROM color WHERE color_name=%s;", (color_name,))
@@ -72,7 +69,6 @@ try:
             )
             color_map[color_name] = target_cur.fetchone()[0]
 
-    # Маппинг и вставка для body_type
     body_type_map = {}
     for body in set(row[3] for row in unique_values):
         target_cur.execute("SELECT body_id FROM body_type WHERE body=%s;", (body,))
@@ -86,7 +82,6 @@ try:
             )
             body_type_map[body] = target_cur.fetchone()[0]
 
-    # Маппинг и вставка для engine_type
     engine_type_map = {}
     for engine in set(row[4] for row in unique_values):
         target_cur.execute("SELECT engine_type_id FROM engine_type WHERE engine=%s;", (engine,))
@@ -100,7 +95,6 @@ try:
             )
             engine_type_map[engine] = target_cur.fetchone()[0]
 
-    # Маппинг и вставка для publication_type
     publication_type_map = {}
     for publication in set(row[5] for row in unique_values):
         target_cur.execute("SELECT publication_type_id FROM publication_type WHERE publication=%s;", (publication,))
@@ -114,7 +108,6 @@ try:
             )
             publication_type_map[publication] = target_cur.fetchone()[0]
 
-    # Маппинг и вставка для seller_type
     seller_type_map = {}
     for seller in set(row[6] for row in unique_values):
         target_cur.execute("SELECT seller_type_id FROM seller_type WHERE seller=%s;",
@@ -129,7 +122,6 @@ try:
             )
             seller_type_map[seller] = target_cur.fetchone()[0]
 
-    # Маппинг и вставка для transmission_type
     transmission_type_map = {}
     for transmission in set(row[7] for row in unique_values):
         target_cur.execute("SELECT transmission_type_id FROM transmission_type WHERE transmission=%s;",
@@ -144,7 +136,6 @@ try:
             )
             transmission_type_map[transmission] = target_cur.fetchone()[0]
 
-    # 2. Перенос данных из source_offers в offer
     source_cur.execute("SELECT * FROM source.offers;")
     offers = source_cur.fetchall()
 
@@ -155,7 +146,6 @@ try:
                     source_seller_email, source_seller_phone_formatted_numbers, source_seller_address_id, source_seller_dealer_region, source_seller_dealer_homepage_url,
                     source_seller_dealer_review_count, source_seller_dealer_rating_average, source_seller_dealer_recommend_percentage, source_seller_link_car_methods,
                     source_dealer_contact_person_phone, source_dealer_contact_person_email, source_dealer_contact_person_name, source_dealer_contact_person_position, source_created_at) in offers:
-        # Получаем foreign keys
         make_id = make_map[source_make]
         model_id = model_map[(source_model, source_make)]
         color_id = color_map[source_color]
@@ -164,9 +154,6 @@ try:
         publication_type_id = publication_type_map[source_publication_type]
         seller_type_id = seller_type_map[source_seller_type]
         transmission_type_id = transmission_type_map[source_transmission_type]
-
-        # Вставляем в offer
-        # Убедитесь, что у таблицы offer есть уникальный индекс или ключ, чтобы избежать дублирования
 
         target_cur.execute("""
                 INSERT INTO seller (source_seller_id, seller_company_name, seller_contact_name, seller_sell_id, seller_email, seller_phone_formatted_numbers, 
@@ -196,11 +183,10 @@ try:
               source_publication_update_date, source_available_now, source_equipment, source_image_urls, source_description, s_source_urls, source_city,
               source_country, source_created_at, color_id, body_type_id, engine_type_id, transmission_type_id, publication_type_id, seller_id))
 
-    # Коммитим транзакцию
     target_conn.commit()
 
 except Exception as e:
-    print(f"Ошибка: {e}")
+    print(f"Error: {e}")
     target_conn.rollback()
 finally:
     target_cur.close()
