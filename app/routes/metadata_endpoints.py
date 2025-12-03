@@ -1,7 +1,6 @@
-from fastapi import HTTPException, Depends, Query, APIRouter, Path
+from fastapi import HTTPException, Depends, Query, APIRouter
 from fastapi_pagination import Page, paginate
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
 
 from app.models import *
 from app.schemas import *
