@@ -5,18 +5,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 source_conn = psycopg2.connect(
-    host=os.getenv("source_host"),
-    dbname=os.getenv("source_dbname"),
-    user=os.getenv("source_user"),
-    password=os.getenv("source_password"),
+    host=os.getenv("SOURCE_HOST"),
+    dbname=os.getenv("SOURCE_DBNAME"),
+    user=os.getenv("SOURCE_USER"),
+    password=os.getenv("SOURCE_PASSWORD"),
     sslmode="require"
 )
 
 target_conn = psycopg2.connect(
-    host=os.getenv("target_host"),
-    dbname=os.getenv("target_dbname"),
-    user=os.getenv("target_user"),
-    password=os.getenv("target_password")
+    host=os.getenv("TARGET_HOST"),
+    dbname=os.getenv("TARGET_DBNAME"),
+    user=os.getenv("TARGET_USER"),
+    password=os.getenv("TARGET_PASSWORD")
 )
 
 source_cur = source_conn.cursor()
