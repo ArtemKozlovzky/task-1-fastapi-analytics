@@ -5,15 +5,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-database_url = os.getenv("TARGET_DATABASE_URL")
-
 db_url = URL.create(
     drivername='postgresql+asyncpg',
-    username= 'postgres',
-    password= 'Z@)5b#JYzmm3.vN',
-    host='localhost',
+    username= os.getenv('TARGET_USER'),
+    password= os.getenv('TARGET_PASSWORD'),
+    host= os.getenv('TARGET_HOST'),
     port=5432,
-    database= 'offers_db'
+    database= os.getenv('TARGET_DBNAME')
 )
 
 engine = create_async_engine(
