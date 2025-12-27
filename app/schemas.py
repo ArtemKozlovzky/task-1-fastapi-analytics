@@ -1,7 +1,9 @@
+from contextlib import nullcontext
+
 from pydantic import BaseModel
 from datetime import date, datetime
 
-class BaseOffer(BaseModel):
+class Offer(BaseModel):
     offer_id: int
     source_offer_id: str | None
     make: str | None
@@ -33,11 +35,11 @@ class BaseOffer(BaseModel):
     country: str | None
     seller_id: int | None
 
-class OfferSchema(BaseOffer):
+class OfferSchema(Offer):
     class Config:
         from_attributes = True
 
-class BaseSeller(BaseModel):
+class Seller(BaseModel):
     seller_id: int
     source_seller_id: int | None
     seller_company_name: str
@@ -58,23 +60,36 @@ class BaseSeller(BaseModel):
     dealer_contact_person_position: str |None
     seller_type: str
 
-class BaseMake(BaseModel):
+class Make(BaseModel):
     make_id: int
     make_name: str
 
-class SBaseModel(BaseModel):
+class SModel(BaseModel):
     model_id: int
     model_name: str
     make_id: int
 
-class BaseBodyType(BaseModel):
+class BodyType(BaseModel):
     body_id: int
     body: str
 
-class BaseTransmissionType(BaseModel):
+class TransmissionType(BaseModel):
     transmission_type_id: int
     transmission: str | None
 
-class BaseEngineType(BaseModel):
+class EngineType(BaseModel):
     engine_type_id: int
     engine: str
+
+class OfferQueryParams(BaseModel):
+    min_price: float | None = "null"
+    max_price: float | None = "null"
+    min_mileage: float | None = "null"
+    max_mileage: float | None = "null"
+    make_id: int | None = "null"
+    model_id: int | None = "null"
+    engine_type_id: int | None = "null"
+    body_type_id: int | None = "null"
+    transmission_type_id: int | None = "null"
+    sort_by: str | None = "price"
+    sort_direction: str | None = "asc"
