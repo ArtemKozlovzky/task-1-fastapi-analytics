@@ -11,8 +11,43 @@ from app.database import get_session
 router = APIRouter()
 add_pagination(router)
 
+def apply_filters(
+    base_query,
+    min_price=None,
+    max_price=None,
+    min_mileage=None,
+    max_mileage=None,
+    make_vals=None,
+    model_vals=None,
+    engine_vals=None,
+    body_vals=None,
+    trans_vals=None,
+):
+    if min_price is not None:
+        base_query = base_query.where(OfferOrm.original_price >= min_price)
+    if max_price is not None:
+        base_query = base_query.where(OfferOrm.original_price <= max_price)
+
+    if min_mileage is not None:
+        base_query = base_query.where(OfferOrm.mileage >= min_mileage)
+    if max_mileage is not None:
+        base_query = base_query.where(OfferOrm.mileage <= max_mileage)
+
+    if make_vals:
+        base_query = base_query.where(OfferOrm.make_id.in_(make_vals))
+    if model_vals:
+        base_query = base_query.where(OfferOrm.model_id.in_(model_vals))
+    if engine_vals:
+        base_query = base_query.where(OfferOrm.engine_type_id.in_(engine_vals))
+    if body_vals:
+        base_query = base_query.where(OfferOrm.body_type_id.in_(body_vals))
+    if trans_vals:
+        base_query = base_query.where(OfferOrm.transmission_type_id.in_(trans_vals))
+
+    return base_query
+
 @router.post("/offers", response_model=Page[OfferSchema])
-async def offers(query_params: OfferQueryParams, session: AsyncSession = Depends(get_session)):
+async def offers(query_params: OffersRequest, session: AsyncSession = Depends(get_session)):
     user_input = {
         "min_price": query_params.min_price,
         "max_price": query_params.max_price,
@@ -35,6 +70,15 @@ async def offers(query_params: OfferQueryParams, session: AsyncSession = Depends
         size = 20
     offset = (page - 1) * size
 
+    def to_single(v):
+        if v is None:
+            return None
+        if isinstance(v, (list, tuple, set)):
+            if len(v) > 1:
+                raise HTTPException(status_code=400, detail="Only one value allowed")
+            return list(v)[0]
+        return v
+
     def to_list(v):
         if v is None:
             return None
@@ -44,14 +88,19 @@ async def offers(query_params: OfferQueryParams, session: AsyncSession = Depends
             vals = [v]
         return vals if vals else None
 
-    make_vals = to_list(user_input["make_id"])
-    model_vals = to_list(user_input["model_id"])
-    engine_vals = to_list(user_input["engine_type_id"])
-    body_vals = to_list(user_input["body_type_id"])
-    trans_vals = to_list(user_input["transmission_type_id"])
+    make_id = to_single(user_input["make_id"])
+    model_id = to_single(user_input["model_id"])
 
-    if model_vals and not make_vals:
+    if model_id and not make_id:
         raise HTTPException(status_code=400, detail="model_id cannot be provided without make_id")
+
+    if make_id and model_id:
+        valid_models_q = select(ModelOrm.model_id).where(ModelOrm.make_id == make_id)
+        valid_models_result = await session.execute(valid_models_q)
+        valid_models = set(valid_models_result.scalars().all())
+
+        if model_id not in valid_models:
+            raise HTTPException(status_code=400, detail="model_id does not belong to given make_id")
 
     query = select(OfferOrm).options(
         joinedload(OfferOrm.make),
@@ -63,66 +112,64 @@ async def offers(query_params: OfferQueryParams, session: AsyncSession = Depends
         joinedload(OfferOrm.transmission_type)
     )
 
+    query = apply_filters(
+        query,
+        min_price=user_input["min_price"],
+        max_price=user_input["max_price"],
+        min_mileage=user_input["min_mileage"],
+        max_mileage=user_input["max_mileage"],
+        engine_vals=to_list(user_input["engine_type_id"]),
+        body_vals=to_list(user_input["body_type_id"]),
+        trans_vals=to_list(user_input["transmission_type_id"])
+    )
+
+    if make_id and not model_id:
+        query = query.where(OfferOrm.make_id == make_id)
+    elif make_id and model_id:
+        query = query.where(OfferOrm.make_id == make_id)
+        query = query.where(OfferOrm.model_id == model_id)
+
     if user_input["min_price"] is not None:
         query = query.where(OfferOrm.original_price >= user_input["min_price"])
     if user_input["max_price"] is not None:
         query = query.where(OfferOrm.original_price <= user_input["max_price"])
-
     if user_input["min_mileage"] is not None:
         query = query.where(OfferOrm.mileage >= user_input["min_mileage"])
     if user_input["max_mileage"] is not None:
         query = query.where(OfferOrm.mileage <= user_input["max_mileage"])
 
-    if make_vals:
-        query = query.where(OfferOrm.make_id.in_(make_vals))
-
-    if model_vals:
-        query = query.where(OfferOrm.model_id.in_(model_vals))
-
-    if engine_vals:
-        query = query.where(OfferOrm.engine_type_id.in_(engine_vals))
-
-    if body_vals:
-        query = query.where(OfferOrm.body_type_id.in_(body_vals))
-
-    if trans_vals:
-        query = query.where(OfferOrm.transmission_type_id.in_(trans_vals))
-
     if user_input["sort_by"] == "price":
-        if user_input["sort_direction"] == "asc":
-            query = query.order_by(OfferOrm.original_price.asc())
-        elif user_input["sort_direction"] == "desc":
-            query = query.order_by(OfferOrm.original_price.desc())
+        query = query.order_by(
+            OfferOrm.original_price.asc() if user_input["sort_direction"] == "asc"
+            else OfferOrm.original_price.desc()
+        )
     elif user_input["sort_by"] == "mileage":
-        if user_input["sort_direction"] == "asc":
-            query = query.order_by(OfferOrm.mileage.asc())
-        elif user_input["sort_direction"] == "desc":
-            query = query.order_by(OfferOrm.mileage.desc())
+        query = query.order_by(
+            OfferOrm.mileage.asc() if user_input["sort_direction"] == "asc"
+            else OfferOrm.mileage.desc()
+        )
     elif user_input["sort_by"] == "publication_date":
-        if user_input["sort_direction"] == "asc":
-            query = query.order_by(OfferOrm.publication_create_date.asc())
-        elif user_input["sort_direction"] == "desc":
-            query = query.order_by(OfferOrm.publication_create_date.desc())
+        query = query.order_by(
+            OfferOrm.publication_create_date.asc() if user_input["sort_direction"] == "asc"
+            else OfferOrm.publication_create_date.desc()
+        )
 
     count_q = select(func.count()).select_from(OfferOrm)
-    if user_input["min_price"] is not None:
-        count_q = count_q.where(OfferOrm.original_price >= user_input["min_price"])
-    if user_input["max_price"] is not None:
-        count_q = count_q.where(OfferOrm.original_price <= user_input["max_price"])
-    if user_input["min_mileage"] is not None:
-        count_q = count_q.where(OfferOrm.mileage >= user_input["min_mileage"])
-    if user_input["max_mileage"] is not None:
-        count_q = count_q.where(OfferOrm.mileage <= user_input["max_mileage"])
-    if make_vals:
-        count_q = count_q.where(OfferOrm.make_id.in_(make_vals))
-    if model_vals:
-        count_q = count_q.where(OfferOrm.model_id.in_(model_vals))
-    if engine_vals:
-        count_q = count_q.where(OfferOrm.engine_type_id.in_(engine_vals))
-    if body_vals:
-        count_q = count_q.where(OfferOrm.body_type_id.in_(body_vals))
-    if trans_vals:
-        count_q = count_q.where(OfferOrm.transmission_type_id.in_(trans_vals))
+    count_q = apply_filters(
+        count_q,
+        min_price=user_input["min_price"],
+        max_price=user_input["max_price"],
+        min_mileage=user_input["min_mileage"],
+        max_mileage=user_input["max_mileage"],
+        engine_vals=to_list(user_input["engine_type_id"]),
+        body_vals=to_list(user_input["body_type_id"]),
+        trans_vals=to_list(user_input["transmission_type_id"])
+    )
+    if make_id and not model_id:
+        count_q = count_q.where(OfferOrm.make_id == make_id)
+    elif make_id and model_id:
+        count_q = count_q.where(OfferOrm.make_id == make_id)
+        count_q = count_q.where(OfferOrm.model_id == model_id)
 
     total_result = await session.execute(count_q)
     total = int(total_result.scalar_one() or 0)
@@ -134,49 +181,44 @@ async def offers(query_params: OfferQueryParams, session: AsyncSession = Depends
     def safe(obj, attr):
         return getattr(obj, attr, None) if obj is not None else None
 
-    response_list = []
-    for offer in offers:
-        response_list.append(
-            OfferSchema(
-                offer_id=offer.offer_id,
-                source_offer_id=offer.source_offer_id,
-                make=safe(offer.make, "make_name"),
-                model=safe(offer.model, "model_name"),
-                title=offer.title,
-                color=safe(offer.color, "color_name"),
-                body_type=safe(offer.body_type, "body"),
-                engine_type=safe(offer.engine_type, "engine"),
-                engine_capacity=offer.engine_capacity,
-                engine_power_kw=offer.engine_power_kw,
-                engine_power_hp=offer.engine_power_hp,
-                mileage=offer.mileage,
-                transmission_type=safe(offer.transmission_type, "transmission"),
-                year_of_issue=offer.year_of_issue,
-                vin=offer.vin,
-                original_price=offer.original_price,
-                tax_deductible=offer.tax_deductible,
-                first_registration=offer.first_registration,
-                publication_create_date=offer.publication_create_date,
-                publication_update_date=offer.publication_update_date,
-                available_now=offer.available_now,
-                publication_type=safe(offer.publication_type, "publication"),
-                equipment=offer.equipment,
-                description=offer.description,
-                source_url=offer.source_url,
-                created_at=offer.created_at,
-                image_urls=offer.image_urls,
-                city=offer.city,
-                country=offer.country,
-                seller_id=offer.seller_id
-            )
+    response_list = [
+        OfferSchema(
+            offer_id=offer.offer_id,
+            source_offer_id=offer.source_offer_id,
+            make=safe(offer.make, "make_name"),
+            model=safe(offer.model, "model_name"),
+            title=offer.title,
+            color=safe(offer.color, "color_name"),
+            body_type=safe(offer.body_type, "body"),
+            engine_type=safe(offer.engine_type, "engine"),
+            engine_capacity=offer.engine_capacity,
+            engine_power_kw=offer.engine_power_kw,
+            engine_power_hp=offer.engine_power_hp,
+            mileage=offer.mileage,
+            transmission_type=safe(offer.transmission_type, "transmission"),
+            year_of_issue=offer.year_of_issue,
+            vin=offer.vin,
+            original_price=offer.original_price,
+            tax_deductible=offer.tax_deductible,
+            first_registration=offer.first_registration,
+            publication_create_date=offer.publication_create_date,
+            publication_update_date=offer.publication_update_date,
+            available_now=offer.available_now,
+            publication_type=safe(offer.publication_type, "publication"),
+            equipment=offer.equipment,
+            description=offer.description,
+            source_url=offer.source_url,
+            created_at=offer.created_at,
+            image_urls=offer.image_urls,
+            city=offer.city,
+            country=offer.country,
+            seller_id=offer.seller_id
         )
+        for offer in offers
+    ]
 
     params = Params(page=page, size=size)
     return Page.create(items=response_list, total=total, params=params)
-
-
-
-
 
 
 @router.get("/offer/{offer_id}", response_model=OfferSchema)

@@ -1,5 +1,3 @@
-from contextlib import nullcontext
-
 from pydantic import BaseModel
 from datetime import date, datetime
 
@@ -81,7 +79,7 @@ class EngineType(BaseModel):
     engine_type_id: int
     engine: str
 
-class OfferQueryParams(BaseModel):
+class OffersRequest(BaseModel):
     min_price: float | None = "null"
     max_price: float | None = "null"
     min_mileage: float | None = "null"
