@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
 from fastapi import Depends, Query, APIRouter, HTTPException, Path
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from typing import List
 from sqlalchemy.orm import joinedload
 
@@ -178,3 +178,39 @@ async def get_stats_by_make(
         )
     ]
     return response_list
+
+
+@router.get("/analytics/price-distribution")
+async def price_distribution(
+    min_price: int = 0,
+    max_price: int = 100000,
+    bucket_count: int = 10,
+    session: AsyncSession = Depends(get_session)
+):
+
+    bucket = func.width_bucket(OfferOrm.original_price, min_price, max_price, bucket_count)
+
+    stmt = (
+        select(
+            bucket.label("bucket"),
+            func.count().label("count")
+        )
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+
+    rows = (await session.execute(stmt)).all()
+
+    bucket_size = (max_price - min_price) / bucket_count
+
+    buckets = []
+    for row in rows:
+        b = row.bucket
+        buckets.append({
+            "min_price": int(min_price + (b - 1) * bucket_size),
+            "max_price": int(min_price + b * bucket_size),
+            "count": row.count
+        })
+
+    return {"buckets": buckets}
+
