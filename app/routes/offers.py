@@ -1,12 +1,16 @@
 from fastapi_pagination import Page, Params, add_pagination
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
-from fastapi import Depends, HTTPException, APIRouter, Path
+from fastapi import Depends, HTTPException, APIRouter, Path, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+import csv
+import uuid
+import os
 
 from app.models import *
 from app.schemas import *
-from app.database import get_session
+from app.database import get_session, new_session
 
 router = APIRouter()
 add_pagination(router)
@@ -45,6 +49,58 @@ def apply_filters(
         base_query = base_query.where(OfferOrm.transmission_type_id.in_(trans_vals))
 
     return base_query
+
+async def generate_csv_file(params: dict, session_factory, file_path: str):
+    async with session_factory() as session:
+        query = select(OfferOrm).options(
+            joinedload(OfferOrm.make),
+            joinedload(OfferOrm.model),
+            joinedload(OfferOrm.color),
+            joinedload(OfferOrm.body_type),
+            joinedload(OfferOrm.engine_type),
+            joinedload(OfferOrm.publication_type),
+            joinedload(OfferOrm.transmission_type)
+        )
+
+        query = apply_filters(
+            query,
+            min_price=params["min_price"],
+            max_price=params["max_price"],
+            min_mileage=params["min_mileage"],
+            max_mileage=params["max_mileage"],
+            engine_vals=params["engine_type_id"],
+            body_vals=params["body_type_id"],
+            trans_vals=params["transmission_type_id"]
+        )
+
+        if params["make_id"]:
+            query = query.where(OfferOrm.make_id == params["make_id"])
+        if params["model_id"]:
+            query = query.where(OfferOrm.model_id == params["model_id"])
+
+        if params["csv_limit"]:
+            query = query.limit(params["csv_limit"])
+
+        results = await session.execute(query)
+        offers = results.scalars().all()
+
+        with open(file_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "offer_id", "make", "model", "price", "mileage", "year", "city"
+            ])
+
+            for o in offers:
+                writer.writerow([
+                    o.offer_id,
+                    o.make.make_name if o.make else None,
+                    o.model.model_name if o.model else None,
+                    o.original_price,
+                    o.mileage,
+                    o.year_of_issue,
+                    o.city
+                ])
+
 
 @router.post("/offers", response_model=Page[OfferSchema])
 async def offers(query_params: OffersRequest, session: AsyncSession = Depends(get_session)):
@@ -272,4 +328,78 @@ async def get_offer_by_id(
         city=offer.city,
         country=offer.country,
         seller_id=offer.seller_id
+    )
+
+EXPORT_DIR = "/tmp/exports"
+os.makedirs(EXPORT_DIR, exist_ok=True)
+
+@router.post("/submit-background-export")
+async def submit_background_export(
+    query_params: ExportRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session)
+):
+    user_input = {
+        "min_price": query_params.min_price,
+        "max_price": query_params.max_price,
+        "min_mileage": query_params.min_mileage,
+        "max_mileage": query_params.max_mileage,
+        "make_id": query_params.make_id,
+        "model_id": query_params.model_id,
+        "engine_type_id": query_params.engine_type_id,
+        "body_type_id": query_params.body_type_id,
+        "transmission_type_id": query_params.transmission_type_id,
+        "sort_by": query_params.sort_by,
+        "sort_direction": query_params.sort_direction,
+        "csv_limit": query_params.csv_limit,
+    }
+
+    def to_single(v):
+        if v is None:
+            return None
+        if isinstance(v, (list, tuple, set)):
+            if len(v) > 1:
+                raise HTTPException(status_code=400, detail="Only one value allowed")
+            return list(v)[0]
+        return v
+
+    make_id = to_single(user_input["make_id"])
+    model_id = to_single(user_input["model_id"])
+
+    if model_id and not make_id:
+        raise HTTPException(status_code=400, detail="model_id cannot be provided without make_id")
+
+    if make_id and model_id:
+        valid_models_q = select(ModelOrm.model_id).where(ModelOrm.make_id == make_id)
+        valid_models_result = await session.execute(valid_models_q)
+        valid_models = set(valid_models_result.scalars().all())
+
+        if model_id not in valid_models:
+            raise HTTPException(status_code=400, detail="model_id does not belong to given make_id")
+
+    job_id = str(
+        uuid.uuid4())
+    file_path = os.path.join(EXPORT_DIR, f"{job_id}.csv")
+    background_tasks.add_task(
+        generate_csv_file,
+        params=user_input,
+        session_factory=new_session,
+        file_path=file_path
+    )
+    return {
+        "status": "queued",
+        "job_id": job_id
+    }
+
+@router.get("/download-export/{job_id}")
+async def download_export(job_id: str):
+    file_path = os.path.join(EXPORT_DIR, f"{job_id}.csv")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Export not ready or job_id invalid")
+
+    return FileResponse(
+        path=file_path,
+        media_type="text/csv",
+        filename=f"export_{job_id}.csv"
     )
