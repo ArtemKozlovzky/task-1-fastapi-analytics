@@ -1,8 +1,9 @@
 from pydantic import BaseModel
+from typing import List, Optional
 from datetime import date, datetime
 
 class Offer(BaseModel):
-    offer_id: int
+    offer_id: int | str
     source_offer_id: str | None
     make: str | None
     model: str | None
@@ -91,3 +92,54 @@ class OffersRequest(BaseModel):
     transmission_type_id: int | None = "null"
     sort_by: str | None = "price"
     sort_direction: str | None = "asc"
+
+class CarsHubRequest(BaseModel):
+    carModels: Optional[List[dict]] = None   #not used directly, uses make and model
+    equipment: Optional[List[str]] = None
+    min_mileage: Optional[int] = None
+    max_mileage: Optional[int] = None
+    min_year: Optional[int] = None
+    max_year: Optional[int] = None
+    min_power_kw: Optional[int] = None
+    max_power_kw: Optional[int] = None
+    engine_type: Optional[str] = None
+    body_type: Optional[str] = None
+    transmission_type: Optional[str] = None
+    tax_deductible: Optional[bool] = None
+    sort_by: Optional[str] = None
+    sort_direction: Optional[str] = None
+    make: Optional[str] = None
+    model: Optional[str] = None
+    limit: Optional[int] = None
+
+class CarsHub(BaseModel):
+    source_offer_id: str
+    make: Optional[str]
+    model: Optional[str]
+    title: Optional[str]
+    color: Optional[str]
+    body_type: Optional[str]
+    engine_type: Optional[str]
+    engine_capacity: Optional[int]
+    engine_power_kw: Optional[int]
+    engine_power_hp: Optional[int]
+    mileage: Optional[int]
+    transmission_type: Optional[str]
+    year_of_issue: Optional[int]
+    vin: Optional[str]
+    original_price: Optional[int]
+    tax_deductible: Optional[bool]
+    first_registration: Optional[str]
+    publication_create_date: Optional[str]
+    publication_update_date: Optional[str]
+    available_now: Optional[bool]
+    publication_type: Optional[str]
+    equipment: Optional[list]
+    description: Optional[str]
+    source_url: Optional[str]
+    created_at: Optional[str]
+    image_urls: Optional[list]
+    city: Optional[str]
+    country: Optional[str]
+    seller_id: Optional[str]
+
