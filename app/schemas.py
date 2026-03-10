@@ -3,7 +3,7 @@ from typing import List, Optional
 from datetime import date, datetime
 
 class Offer(BaseModel):
-    offer_id: int | str
+    offer_id: int | None = None
     source_offer_id: str | None
     make: str | None
     model: str | None
@@ -25,11 +25,11 @@ class Offer(BaseModel):
     publication_update_date: datetime | None
     available_now: bool | None
     publication_type: str | None
-    equipment: list | None
+    equipment: list[str] | None
     description: str | dict | None
     source_url: str | None
     created_at: datetime | None
-    image_urls: str | list | None
+    image_urls: list[str] | None
     city: str | None
     country: str | None
     seller_id: int | None
