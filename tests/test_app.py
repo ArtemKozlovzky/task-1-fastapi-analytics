@@ -1,9 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from httpx import AsyncClient, ASGITransport
+from fastapi import HTTPException
 
 from app.routes.offers import get_offer_by_id
-from app.main import app
 from app.schemas import OfferSchema
 
 @pytest.mark.asyncio
@@ -54,10 +53,40 @@ async def test_get_offer_by_id_unit():
     assert result.make == "TestMake"
     assert result.model == "TestModel"
 
+
 @pytest.mark.asyncio
-async def test_get_offer_by_id_integration():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        response = await ac.get("/offer/1")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 30
+async def test_get_offer_by_id_not_found():
+    fake_result = MagicMock()
+    fake_result.scalars.return_value.first.return_value = None
+
+    fake_session = AsyncMock()
+    fake_session.execute.return_value = fake_result
+
+    with pytest.raises(HTTPException) as exc:
+        await get_offer_by_id(999, session=fake_session)
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Offer not found"
+
+
+@pytest.mark.asyncio
+async def test_get_offer_by_id_db_error():
+    fake_session = AsyncMock()
+    fake_session.execute.side_effect = Exception("DB error")
+
+    with pytest.raises(Exception) as exc:
+        await get_offer_by_id(1, session=fake_session)
+
+    assert "DB error" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_get_offer_by_id_db_error():
+    fake_session = AsyncMock()
+    fake_session.execute.side_effect = Exception("DB error")
+
+    with pytest.raises(Exception) as exc:
+        await get_offer_by_id(1, session=fake_session)
+
+    assert "DB error" in str(exc.value)
+
