@@ -105,12 +105,12 @@ class StatisticsRequest(BaseModel):
 
 class Statistics(BaseModel):
     total_offers: int
-    average_price: float
-    average_mileage: float
+    average_price: float | None
+    average_mileage: float | None
 
 class MakeStatistics(BaseModel):
     make_id: int
     make_name: str
     total_offers: int
-    average_price: float
-    average_mileage: float
+    average_price: float | None
+    average_mileage: float | None
