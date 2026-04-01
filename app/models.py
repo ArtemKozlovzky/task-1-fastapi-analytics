@@ -1,5 +1,7 @@
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, String, DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+import uuid
 
 
 class Model(DeclarativeBase):
@@ -141,3 +143,12 @@ class TransmissionTypeOrm(Model):
     transmission: Mapped[str | None]
 
     offers = relationship("OfferOrm", back_populates='transmission_type')
+
+class ExportJobOrm(Model):
+    __tablename__ = "export_jobs"
+
+    job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    status: Mapped[str] = mapped_column(String, nullable=False,default="pending")
+    filters: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    file_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())

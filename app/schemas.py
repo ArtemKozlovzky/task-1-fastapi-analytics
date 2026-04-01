@@ -92,16 +92,5 @@ class OffersRequest(BaseModel):
     sort_by: str | None = "price"
     sort_direction: str | None = "asc"
 
-class ExportRequest(BaseModel):
-    min_price: float | None = "null"
-    max_price: float | None = "null"
-    min_mileage: float | None = "null"
-    max_mileage: float | None = "null"
-    make_id: int | None = "null"
-    model_id: int | None = "null"
-    engine_type_id: int | None = "null"
-    body_type_id: int | None = "null"
-    transmission_type_id: int | None = "null"
-    sort_by: str | None = "price"
-    sort_direction: str | None = "asc"
+class ExportRequest(OffersRequest):
     csv_limit: int | None

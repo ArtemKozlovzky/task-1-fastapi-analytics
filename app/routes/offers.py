@@ -1,11 +1,11 @@
 from fastapi_pagination import Page, Params, add_pagination
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
-from fastapi import Depends, HTTPException, APIRouter, Path, BackgroundTasks
+from fastapi import Depends, HTTPException, APIRouter, Path, BackgroundTasks, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import csv
-import uuid
+import logging
 import os
 
 from app.models import *
@@ -50,56 +50,76 @@ def apply_filters(
 
     return base_query
 
+logger = logging.getLogger(__name__)
+
+MAX_EXPORT_ROWS = 100_000
+
 async def generate_csv_file(params: dict, session_factory, file_path: str):
     async with session_factory() as session:
-        query = select(OfferOrm).options(
-            joinedload(OfferOrm.make),
-            joinedload(OfferOrm.model),
-            joinedload(OfferOrm.color),
-            joinedload(OfferOrm.body_type),
-            joinedload(OfferOrm.engine_type),
-            joinedload(OfferOrm.publication_type),
-            joinedload(OfferOrm.transmission_type)
-        )
+        try:
+            query = select(OfferOrm).options(
+                joinedload(OfferOrm.make),
+                joinedload(OfferOrm.model),
+                joinedload(OfferOrm.color),
+                joinedload(OfferOrm.body_type),
+                joinedload(OfferOrm.engine_type),
+                joinedload(OfferOrm.publication_type),
+                joinedload(OfferOrm.transmission_type)
+            )
 
-        query = apply_filters(
-            query,
-            min_price=params["min_price"],
-            max_price=params["max_price"],
-            min_mileage=params["min_mileage"],
-            max_mileage=params["max_mileage"],
-            engine_vals=params["engine_type_id"],
-            body_vals=params["body_type_id"],
-            trans_vals=params["transmission_type_id"]
-        )
+            query = apply_filters(
+                query,
+                min_price=params["min_price"],
+                max_price=params["max_price"],
+                min_mileage=params["min_mileage"],
+                max_mileage=params["max_mileage"],
+                engine_vals=params["engine_type_id"],
+                body_vals=params["body_type_id"],
+                trans_vals=params["transmission_type_id"]
+            )
 
-        if params["make_id"]:
-            query = query.where(OfferOrm.make_id == params["make_id"])
-        if params["model_id"]:
-            query = query.where(OfferOrm.model_id == params["model_id"])
+            if params["make_id"]:
+                query = query.where(OfferOrm.make_id == params["make_id"])
+            if params["model_id"]:
+                query = query.where(OfferOrm.model_id == params["model_id"])
 
-        if params["csv_limit"]:
-            query = query.limit(params["csv_limit"])
+            limit = min(params.get("csv_limit") or MAX_EXPORT_ROWS, MAX_EXPORT_ROWS)
+            query = query.limit(limit)
 
-        results = await session.execute(query)
-        offers = results.scalars().all()
+            result = await session.stream(query)
 
-        with open(file_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "offer_id", "make", "model", "price", "mileage", "year", "city"
-            ])
-
-            for o in offers:
+            with open(file_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
                 writer.writerow([
-                    o.offer_id,
-                    o.make.make_name if o.make else None,
-                    o.model.model_name if o.model else None,
-                    o.original_price,
-                    o.mileage,
-                    o.year_of_issue,
-                    o.city
+                    "offer_id", "make", "model", "price", "mileage", "year", "city"
                 ])
+
+                async for partition in result.partitions(1000):
+                    for row in partition:
+                        o = row[0]
+                        writer.writerow([
+                            o.offer_id,
+                            o.make.make_name if o.make else None,
+                            o.model.model_name if o.model else None,
+                            o.original_price,
+                            o.mileage,
+                            o.year_of_issue,
+                            o.city
+                        ])
+
+            job = await session.get(ExportJobOrm, params["job_id"])
+            job.status = "completed"
+            await session.commit()
+
+        except Exception as e:
+            logger.exception(f"Export failed for job {params.get('job_id')}")
+
+            job = await session.get(ExportJobOrm, params["job_id"])
+            if job:
+                job.status = "failed"
+                await session.commit()
+
+            raise
 
 
 @router.post("/offers", response_model=Page[OfferSchema])
@@ -330,10 +350,10 @@ async def get_offer_by_id(
         seller_id=offer.seller_id
     )
 
-EXPORT_DIR = "/tmp/exports"
+EXPORT_DIR = os.getenv("EXPORT_DIR", "exports")
 os.makedirs(EXPORT_DIR, exist_ok=True)
 
-@router.post("/submit-background-export")
+@router.post("/offers/export", status_code=status.HTTP_202_ACCEPTED)
 async def submit_background_export(
     query_params: ExportRequest,
     background_tasks: BackgroundTasks,
@@ -351,7 +371,7 @@ async def submit_background_export(
         "transmission_type_id": query_params.transmission_type_id,
         "sort_by": query_params.sort_by,
         "sort_direction": query_params.sort_direction,
-        "csv_limit": query_params.csv_limit,
+        "csv_limit": query_params.csv_limit
     }
 
     def to_single(v):
@@ -373,33 +393,54 @@ async def submit_background_export(
         valid_models_q = select(ModelOrm.model_id).where(ModelOrm.make_id == make_id)
         valid_models_result = await session.execute(valid_models_q)
         valid_models = set(valid_models_result.scalars().all())
-
         if model_id not in valid_models:
             raise HTTPException(status_code=400, detail="model_id does not belong to given make_id")
 
-    job_id = str(
-        uuid.uuid4())
+    job_id = uuid.uuid4()
     file_path = os.path.join(EXPORT_DIR, f"{job_id}.csv")
+
+    job = ExportJobOrm(
+        job_id=job_id,
+        status="pending",
+        filters=user_input,
+        file_path=file_path
+    )
+    session.add(job)
+    await session.commit()
+
     background_tasks.add_task(
         generate_csv_file,
-        params=user_input,
+        params={**user_input, "job_id": job_id},
         session_factory=new_session,
         file_path=file_path
     )
+
     return {
         "status": "queued",
-        "job_id": job_id
+        "job_id": str(job_id)
     }
 
-@router.get("/download-export/{job_id}")
-async def download_export(job_id: str):
-    file_path = os.path.join(EXPORT_DIR, f"{job_id}.csv")
 
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Export not ready or job_id invalid")
+@router.get("/offers/export/{job_id}")
+async def download_export(job_id: str, session: AsyncSession = Depends(get_session)):
+    job = await session.get(ExportJobOrm, job_id)
 
-    return FileResponse(
-        path=file_path,
-        media_type="text/csv",
-        filename=f"export_{job_id}.csv"
-    )
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status == "pending":
+        return {"status": "pending"}
+
+    if job.status == "failed":
+        return {"status": "failed"}
+
+    file_path = str(job.file_path)
+
+    if job.status == "completed":
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail="File missing")
+        return FileResponse(
+            path=file_path,
+            media_type="text/csv",
+            filename=f"export_{job_id}.csv"
+        )
