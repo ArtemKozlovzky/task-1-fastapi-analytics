@@ -8,7 +8,6 @@ from sqlalchemy.inspection import inspect
 from sqlalchemy.dialects.postgresql import insert
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, date, timezone
-import json
 
 from app.schemas import CarsHubRequest, OfferSchema
 from app.database import get_session
@@ -133,7 +132,6 @@ async def get_or_create_seller(session, seller_raw):
     return obj
 
 
-
 def parse_date(value):
     if not value:
         return None
@@ -146,8 +144,6 @@ def parse_date(value):
     except:
         return None
 
-
-from datetime import datetime, date, timezone
 
 def parse_datetime(value):
     if not value:
@@ -327,94 +323,91 @@ async def get_or_create_model(session, model_name: str | None, make_obj: MakeOrm
     return obj
 
 
-async def lookup_all(raw: OfferSchema) -> Dict[str, Any]:
-    async with get_session() as session:
-        make = await get_or_create(session, MakeOrm, raw.make)
-        model = await get_or_create_model(session, raw.model, make)
+async def lookup_all(raw: OfferSchema, session) -> Dict[str, Any]:
+    make = await get_or_create(session, MakeOrm, raw.make)
+    model = await get_or_create_model(session, raw.model, make)
 
-        color = await get_or_create(session, ColorOrm, raw.color)
-        body = await get_or_create(session, BodyTypeOrm, raw.body_type)
-        engine = await get_or_create(session, EngineTypeOrm, raw.engine_type)
-        transmission = await get_or_create(
-            session, TransmissionTypeOrm, raw.transmission_type
-        )
-        publication = await get_or_create(
-            session, PublicationTypeOrm, raw.publication_type
-        )
+    color = await get_or_create(session, ColorOrm, raw.color)
+    body = await get_or_create(session, BodyTypeOrm, raw.body_type)
+    engine = await get_or_create(session, EngineTypeOrm, raw.engine_type)
+    transmission = await get_or_create(
+        session, TransmissionTypeOrm, raw.transmission_type
+    )
+    publication = await get_or_create(
+        session, PublicationTypeOrm, raw.publication_type
+    )
 
-        await session.commit()
-
-        return {
-            "make_id": make.make_id if make else None,
-            "model_id": model.model_id if model else None,
-            "color_id": color.color_id if color else None,
-            "body_type_id": body.body_id if body else None,
-            "engine_type_id": engine.engine_type_id if engine else None,
-            "transmission_type_id": transmission.transmission_type_id
-            if transmission
-            else None,
-            "publication_type_id": publication.publication_type_id
-            if publication
-            else None,
-        }
+    return {
+        "make_id": make.make_id if make else None,
+        "model_id": model.model_id if model else None,
+        "color_id": color.color_id if color else None,
+        "body_type_id": body.body_id if body else None,
+        "engine_type_id": engine.engine_type_id if engine else None,
+        "transmission_type_id": transmission.transmission_type_id
+        if transmission
+        else None,
+        "publication_type_id": publication.publication_type_id
+        if publication
+        else None,
+    }
 
 
-async def upsert_offers(offers: list[dict]):
-    async with get_session() as session:
-        offer_columns = {col.name for col in OfferOrm.__table__.c}
+async def upsert_offers(offers: list[dict], session):
+    offer_columns = {col.name for col in OfferOrm.__table__.c}
 
-        for raw in offers:
-            mapped = map_cars_hub_offer(raw)
-            data = mapped.model_dump()
+    for raw in offers:
+        mapped = map_cars_hub_offer(raw)
+        lookup_ids = await lookup_all(mapped, session)
+        data = mapped.model_dump()
+        data.update(lookup_ids)
 
-            db_data = {k: v for k, v in data.items() if k in offer_columns}
+        db_data = {k: v for k, v in data.items() if k in offer_columns}
 
-            seller_raw = raw.get("seller")
-            seller_obj = await get_or_create_seller(session, seller_raw)
+        seller_raw = raw.get("seller")
+        seller_obj = await get_or_create_seller(session, seller_raw)
 
-            db_data["seller_id"] = seller_obj.seller_id if seller_obj else None
+        db_data["seller_id"] = seller_obj.seller_id if seller_obj else None
 
-            db_data.pop("offer_id", None)
+        db_data.pop("offer_id", None)
 
-            if not db_data.get("source_offer_id"):
-                print("SKIP: no source_offer_id")
-                continue
+        if not db_data.get("source_offer_id"):
+            print("SKIP: no source_offer_id")
+            continue
 
-            update_data = {k: v for k, v in db_data.items() if k != "offer_id"}
+        update_data = {k: v for k, v in db_data.items() if k != "offer_id"}
 
-            stmt = (
-                insert(OfferOrm)
-                .values(**db_data)
-                .on_conflict_do_update(
+        stmt = (
+            insert(OfferOrm)
+            .values(**db_data)
+            .on_conflict_do_update(
                     index_elements=["source_offer_id"],
                     set_=update_data,
-                )
             )
-            await session.execute(stmt)
+        )
+        await session.execute(stmt)
 
-        await session.commit()
-
+    await session.commit()
 
 
 async def run_cars_hub_etl(req: CarsHubRequest):
-    client = CarsHubClient()
-    payload = build_offers_payload(req)
-    raw = await client.get_offers(payload)
-    offers_raw = raw.get("offers", [])
+    async with get_session() as session:
+        client = CarsHubClient()
+        payload = build_offers_payload(req)
+        raw = await client.get_offers(payload)
+        offers_raw = raw.get("offers", [])
 
-    await upsert_offers(offers_raw)
+        await upsert_offers(offers_raw, session)
 
-    mapped = [map_cars_hub_offer(o) for o in offers_raw]
+        mapped = [map_cars_hub_offer(o) for o in offers_raw]
 
-    final_data = []
-    for offer in mapped:
-        lookup_ids = await lookup_all(offer)
-        merged = offer.model_dump()
-        merged.update(lookup_ids)
-        final_data.append(merged)
+        final_data = []
+        for offer in mapped:
+            lookup_ids = await lookup_all(offer, session)
+            merged = offer.model_dump()
+            merged.update(lookup_ids)
+            final_data.append(merged)
 
     return final_data
-
 
 
 scheduler = AsyncIOScheduler()
@@ -428,12 +421,6 @@ async def scheduled_sync():
 
 def start_scheduler():
     scheduler.start()
-
-
-@router.post("/test-api-endpoint", response_model=list[OfferSchema])
-async def test_api_endpoint(req: CarsHubRequest):
-    result = await run_cars_hub_etl(req)
-    return result
 
 
 @router.post("/internal/cars-hub/sync", status_code=202)

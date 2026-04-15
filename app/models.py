@@ -12,8 +12,8 @@ class OfferOrm(Model):
 
     offer_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     source_offer_id: Mapped[str | None] = mapped_column(unique=True, index=True)
-    make_id: Mapped[int] = mapped_column(ForeignKey('make.make_id'))
-    model_id: Mapped[int] = mapped_column(ForeignKey('model.model_id'))
+    make_id: Mapped[int] = mapped_column(ForeignKey('make.make_id'), nullable=True)
+    model_id: Mapped[int] = mapped_column(ForeignKey('model.model_id'), nullable=True)
     title: Mapped[str]
     engine_capacity: Mapped[int | None]
     engine_power_kw: Mapped[int | None]
@@ -34,12 +34,12 @@ class OfferOrm(Model):
     city: Mapped[str | None]
     country: Mapped[str | None]
     created_at: Mapped[datetime | None]
-    color_id: Mapped[int] = mapped_column(ForeignKey('color.color_id'))
-    body_type_id: Mapped[int] = mapped_column(ForeignKey('body_type.body_id'))
-    engine_type_id: Mapped[int] = mapped_column(ForeignKey('engine_type.engine_type_id'))
-    transmission_type_id: Mapped[int] = mapped_column(ForeignKey('transmission_type.transmission_type_id'))
-    publication_type_id: Mapped[int] = mapped_column(ForeignKey('publication_type.publication_type_id'))
-    seller_id: Mapped[int | None] = mapped_column(ForeignKey('seller.seller_id'))
+    color_id: Mapped[int] = mapped_column(ForeignKey('color.color_id'), nullable=True)
+    body_type_id: Mapped[int] = mapped_column(ForeignKey('body_type.body_id'), nullable=True)
+    engine_type_id: Mapped[int] = mapped_column(ForeignKey('engine_type.engine_type_id'), nullable=True)
+    transmission_type_id: Mapped[int] = mapped_column(ForeignKey('transmission_type.transmission_type_id'), nullable=True)
+    publication_type_id: Mapped[int] = mapped_column(ForeignKey('publication_type.publication_type_id'), nullable=True)
+    seller_id: Mapped[int | None] = mapped_column(ForeignKey('seller.seller_id'), nullable=True)
 
     make = relationship('MakeOrm', back_populates='offers')
     model = relationship('ModelOrm', back_populates='offers')
