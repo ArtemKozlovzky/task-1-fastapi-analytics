@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import csv
 import logging
 import os
+from app.utils.filters import to_single, to_list, extract_user_input, apply_filters
 
 from app.models import *
 from app.schemas import *
@@ -15,40 +16,6 @@ from app.database import get_session, new_session
 router = APIRouter()
 add_pagination(router)
 
-def apply_filters(
-    base_query,
-    min_price=None,
-    max_price=None,
-    min_mileage=None,
-    max_mileage=None,
-    make_vals=None,
-    model_vals=None,
-    engine_vals=None,
-    body_vals=None,
-    trans_vals=None,
-):
-    if min_price is not None:
-        base_query = base_query.where(OfferOrm.original_price >= min_price)
-    if max_price is not None:
-        base_query = base_query.where(OfferOrm.original_price <= max_price)
-
-    if min_mileage is not None:
-        base_query = base_query.where(OfferOrm.mileage >= min_mileage)
-    if max_mileage is not None:
-        base_query = base_query.where(OfferOrm.mileage <= max_mileage)
-
-    if make_vals:
-        base_query = base_query.where(OfferOrm.make_id.in_(make_vals))
-    if model_vals:
-        base_query = base_query.where(OfferOrm.model_id.in_(model_vals))
-    if engine_vals:
-        base_query = base_query.where(OfferOrm.engine_type_id.in_(engine_vals))
-    if body_vals:
-        base_query = base_query.where(OfferOrm.body_type_id.in_(body_vals))
-    if trans_vals:
-        base_query = base_query.where(OfferOrm.transmission_type_id.in_(trans_vals))
-
-    return base_query
 
 logger = logging.getLogger(__name__)
 
@@ -145,24 +112,6 @@ async def offers(query_params: OffersRequest, session: AsyncSession = Depends(ge
     if size < 1:
         size = 20
     offset = (page - 1) * size
-
-    def to_single(v):
-        if v is None:
-            return None
-        if isinstance(v, (list, tuple, set)):
-            if len(v) > 1:
-                raise HTTPException(status_code=400, detail="Only one value allowed")
-            return list(v)[0]
-        return v
-
-    def to_list(v):
-        if v is None:
-            return None
-        if isinstance(v, (list, tuple, set)):
-            vals = list(v)
-        else:
-            vals = [v]
-        return vals if vals else None
 
     make_id = to_single(user_input["make_id"])
     model_id = to_single(user_input["model_id"])

@@ -92,5 +92,25 @@ class OffersRequest(BaseModel):
     sort_by: str | None = "price"
     sort_direction: str | None = "asc"
 
-class ExportRequest(OffersRequest):
-    csv_limit: int | None
+class StatisticsRequest(BaseModel):
+    min_price: float | None = "null"
+    max_price: float | None = "null"
+    min_mileage: float | None = "null"
+    max_mileage: float | None = "null"
+    make_id: int | None = "null"
+    model_id: int | None = "null"
+    engine_type_id: int | None = "null"
+    body_type_id: int | None = "null"
+    transmission_type_id: int | None = "null"
+
+class Statistics(BaseModel):
+    total_offers: int
+    average_price: float | None
+    average_mileage: float | None
+
+class MakeStatistics(BaseModel):
+    make_id: int
+    make_name: str
+    total_offers: int
+    average_price: float | None
+    average_mileage: float | None
