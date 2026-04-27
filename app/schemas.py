@@ -114,3 +114,11 @@ class MakeStatistics(BaseModel):
     total_offers: int
     average_price: float | None
     average_mileage: float | None
+
+class PriceDistributionBucket(BaseModel):
+    min_price: int
+    max_price: int
+    count: int
+
+class PriceDistributionResponse(BaseModel):
+    buckets: list[PriceDistributionBucket]
