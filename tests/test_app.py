@@ -78,15 +78,3 @@ async def test_get_offer_by_id_db_error():
         await get_offer_by_id(1, session=fake_session)
 
     assert "DB error" in str(exc.value)
-
-
-@pytest.mark.asyncio
-async def test_get_offer_by_id_db_error():
-    fake_session = AsyncMock()
-    fake_session.execute.side_effect = Exception("DB error")
-
-    with pytest.raises(Exception) as exc:
-        await get_offer_by_id(1, session=fake_session)
-
-    assert "DB error" in str(exc.value)
-
