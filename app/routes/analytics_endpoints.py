@@ -1,7 +1,5 @@
-from dataclasses import asdict
-
-from fastapi import Depends, Query, APIRouter, HTTPException, Path
-from sqlalchemy import select, func, case
+from fastapi import Depends,  APIRouter, HTTPException, Path
+from sqlalchemy import select, func
 from typing import List
 from sqlalchemy.orm import joinedload
 
@@ -180,24 +178,60 @@ async def get_stats_by_make(
     return response_list
 
 
-@router.get("/analytics/price-distribution")
+@router.get("/analytics/price-distribution", response_model=PriceDistributionResponse)
 async def price_distribution(
     min_price: int = 0,
     max_price: int = 100000,
     bucket_count: int = 10,
+    make_id: int | None = None,
+    model_id: int | None = None,
+    engine_type_id: int | None = None,
+    body_type_id: int | None = None,
+    transmission_type_id: int | None = None,
     session: AsyncSession = Depends(get_session)
 ):
 
-    bucket = func.width_bucket(OfferOrm.original_price, min_price, max_price, bucket_count)
+    if min_price >= max_price:
+        raise HTTPException(
+            status_code=400,
+            detail="min_price must be less than max_price"
+        )
+
+    if bucket_count <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="bucket_count must be positive"
+        )
+
+    bucket = func.width_bucket(
+        OfferOrm.original_price,
+        min_price,
+        max_price,
+        bucket_count
+    )
 
     stmt = (
         select(
             bucket.label("bucket"),
             func.count().label("count")
         )
-        .group_by(bucket)
-        .order_by(bucket)
+        .where(OfferOrm.original_price != None)
     )
+
+    if make_id:
+        stmt = stmt.where(OfferOrm.make_id == make_id)
+    if model_id:
+        stmt = stmt.where(OfferOrm.model_id == model_id)
+    if engine_type_id:
+        stmt = stmt.where(OfferOrm.engine_type_id == engine_type_id)
+    if body_type_id:
+        stmt = stmt.where(OfferOrm.body_type_id == body_type_id)
+    if transmission_type_id:
+        stmt = stmt.where(OfferOrm.transmission_type_id == transmission_type_id)
+
+    stmt = stmt.where(bucket > 0).where(bucket <= bucket_count)
+
+    stmt = stmt.group_by(bucket).order_by(bucket)
 
     rows = (await session.execute(stmt)).all()
 
@@ -206,11 +240,14 @@ async def price_distribution(
     buckets = []
     for row in rows:
         b = row.bucket
-        buckets.append({
-            "min_price": int(min_price + (b - 1) * bucket_size),
-            "max_price": int(min_price + b * bucket_size),
-            "count": row.count
-        })
+        buckets.append(
+            PriceDistributionBucket(
+                min_price=int(min_price + (b - 1) * bucket_size),
+                max_price=int(min_price + b * bucket_size),
+                count=row.count
+            )
+        )
 
-    return {"buckets": buckets}
+    return PriceDistributionResponse(buckets=buckets)
+
 
