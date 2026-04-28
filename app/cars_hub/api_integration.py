@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter
 from typing import Any, Dict, List
-from app.schemas import CarsHubRequest, CarsHub, OfferSchema
+from app.schemas import CarsHubRequest, OfferSchema
 
 import httpx
 
@@ -12,24 +12,28 @@ class CarsHubClient:
         self.base_url = os.getenv("CARS_HUB_BASE_URL")
         self.api_code = os.getenv("CARS_HUB_API_CODE")
 
+        if not self.base_url or not self.api_code:
+            raise ValueError("CARS_HUB_BASE_URL and CARS_HUB_API_CODE must be set")
+
+        self.client = httpx.AsyncClient(timeout=30)
+
+
     async def _get(self, path: str) -> Any:
         url = f"{self.base_url}{path}"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.json()
+        response = await self.client.get(url, params={"code": self.api_code})
+        response.raise_for_status()
+        return response.json()
 
     async def _post(self, path: str, payload: Dict) -> Any:
         url = f"{self.base_url}{path}"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                url,
-                params={"code": self.api_code},
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-
-            return response.json()
+        response = await self.client.post(
+            url,
+            params={"code": self.api_code},
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def get_makes(self) -> List[Dict]:
         return await self._get("/makes")
@@ -45,6 +49,9 @@ class CarsHubClient:
     async def get_offers(self, payload: Dict) -> Dict:
         data = await self._post("/offers", payload)
         return data or {"offers": []}
+
+    async def close(self):
+        await self.client.aclose()
 
 
 def map_cars_hub_offer(raw: Dict[str, Any]) -> OfferSchema:
@@ -88,13 +95,12 @@ def map_cars_hub_offer(raw: Dict[str, Any]) -> OfferSchema:
 def is_placeholder(value):
     if isinstance(value, str) and value.lower() == "string":
         return True
-    if isinstance(value, (int, float)) and value == 0:
-        return True
     if isinstance(value, list) and all(is_placeholder(v) for v in value):
         return True
     if isinstance(value, dict) and all(is_placeholder(v) for v in value.values()):
         return True
     return False
+
 
 def clean_payload(d: dict):
     cleaned = {}
@@ -109,7 +115,6 @@ def clean_payload(d: dict):
             continue
         cleaned[k] = v
     return cleaned
-
 
 
 def build_offers_payload(req: CarsHubRequest) -> Dict:
@@ -144,15 +149,10 @@ def build_offers_payload(req: CarsHubRequest) -> Dict:
 
 async def run_cars_hub_etl(req: CarsHubRequest) -> List[OfferSchema]:
     client = CarsHubClient()
-    payload = build_offers_payload(req)
-    raw = await client.get_offers(payload)
-    offers_raw = raw.get("offers", [])
-
-    mapped: List[OfferSchema] = [map_cars_hub_offer(o) for o in offers_raw]
-
-    return mapped
-
-@router.post("/test-api-endpoint", response_model=list[OfferSchema])
-async def test_api_endpoint(req: CarsHubRequest):
-    result = await run_cars_hub_etl(req)
-    return result
+    try:
+        payload = build_offers_payload(req)
+        raw = await client.get_offers(payload)
+        offers_raw = raw.get("offers", [])
+        return [map_cars_hub_offer(o) for o in offers_raw]
+    finally:
+        await client.close()
