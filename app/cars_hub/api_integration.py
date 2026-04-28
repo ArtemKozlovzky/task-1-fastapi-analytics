@@ -1,5 +1,6 @@
 import os
 from typing import Any, Dict, List
+from app.schemas import CarsHubRequest, OfferSchema
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks
@@ -31,24 +32,28 @@ class CarsHubClient:
         self.base_url = os.getenv("CARS_HUB_BASE_URL")
         self.api_code = os.getenv("CARS_HUB_API_CODE")
 
+        if not self.base_url or not self.api_code:
+            raise ValueError("CARS_HUB_BASE_URL and CARS_HUB_API_CODE must be set")
+
+        self.client = httpx.AsyncClient(timeout=30)
+
+
     async def _get(self, path: str) -> Any:
         url = f"{self.base_url}{path}"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.json()
+        response = await self.client.get(url, params={"code": self.api_code})
+        response.raise_for_status()
+        return response.json()
 
     async def _post(self, path: str, payload: Dict) -> Any:
         url = f"{self.base_url}{path}"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                url,
-                params={"code": self.api_code},
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            response.raise_for_status()
-            return response.json()
+        response = await self.client.post(
+            url,
+            params={"code": self.api_code},
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def get_makes(self) -> List[Dict]:
         return await self._get("/makes")
@@ -69,9 +74,9 @@ class CarsHubClient:
         data = await self._post("/offers", payload)
         return data or {"offers": []}
 
-async def get_or_create_seller(session, seller_raw):
-    if not seller_raw:
-        return None
+    async def close(self):
+        await self.client.aclose()
+
 
     seller_id = seller_raw.get("id")
     if not seller_id:
@@ -219,8 +224,6 @@ def map_cars_hub_offer(raw: Dict[str, Any]) -> OfferSchema:
 
 def is_placeholder(value):
     if isinstance(value, str) and value.lower() == "string":
-        return True
-    if isinstance(value, (int, float)) and value == 0:
         return True
     if isinstance(value, list) and all(is_placeholder(v) for v in value):
         return True
@@ -392,22 +395,26 @@ async def upsert_offers(offers: list[dict], session):
 async def run_cars_hub_etl(req: CarsHubRequest):
     async with get_session() as session:
         client = CarsHubClient()
-        payload = build_offers_payload(req)
-        raw = await client.get_offers(payload)
-        offers_raw = raw.get("offers", [])
+        try:
+            payload = build_offers_payload(req)
+            raw = await client.get_offers(payload)
+            offers_raw = raw.get("offers", [])
 
-        await upsert_offers(offers_raw, session)
+            await upsert_offers(offers_raw, session)
 
-        mapped = [map_cars_hub_offer(o) for o in offers_raw]
+            mapped = [map_cars_hub_offer(o) for o in offers_raw]
 
-        final_data = []
-        for offer in mapped:
-            lookup_ids = await lookup_all(offer, session)
-            merged = offer.model_dump()
-            merged.update(lookup_ids)
-            final_data.append(merged)
+            final_data = []
+            for offer in mapped:
+                lookup_ids = await lookup_all(offer, session)
+                merged = offer.model_dump()
+                merged.update(lookup_ids)
+                final_data.append(merged)
 
-    return final_data
+            return final_data
+
+        finally:
+            await client.close()
 
 
 scheduler = AsyncIOScheduler()

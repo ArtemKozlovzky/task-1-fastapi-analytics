@@ -1,6 +1,5 @@
 from fastapi import Depends, Query, APIRouter
 from sqlalchemy import select
-from typing import List
 
 from app.models import *
 from app.schemas import *
