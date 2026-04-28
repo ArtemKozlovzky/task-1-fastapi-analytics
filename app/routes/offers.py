@@ -1,16 +1,16 @@
 from fastapi_pagination import Page, Params, add_pagination
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from fastapi import Depends, HTTPException, APIRouter, Path, BackgroundTasks, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import csv
+import uuid
 import logging
 import os
 from app.utils.filters import to_single, to_list, extract_user_input, apply_filters
-
-from app.models import *
-from app.schemas import *
+from app.models import OfferOrm, ExportJobOrm, ModelOrm
+from app.schemas import OfferSchema, OffersRequest
 from app.database import get_session, new_session
 
 router = APIRouter()
@@ -86,7 +86,7 @@ async def generate_csv_file(params: dict, session_factory, file_path: str):
                 job.status = "failed"
                 await session.commit()
 
-            raise
+            raise e
 
 
 @router.post("/offers", response_model=Page[OfferSchema])
@@ -304,7 +304,7 @@ os.makedirs(EXPORT_DIR, exist_ok=True)
 
 @router.post("/offers/export", status_code=status.HTTP_202_ACCEPTED)
 async def submit_background_export(
-    query_params: ExportRequest,
+    query_params: Depends(extract_user_input),
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session)
 ):
@@ -322,15 +322,6 @@ async def submit_background_export(
         "sort_direction": query_params.sort_direction,
         "csv_limit": query_params.csv_limit
     }
-
-    def to_single(v):
-        if v is None:
-            return None
-        if isinstance(v, (list, tuple, set)):
-            if len(v) > 1:
-                raise HTTPException(status_code=400, detail="Only one value allowed")
-            return list(v)[0]
-        return v
 
     make_id = to_single(user_input["make_id"])
     model_id = to_single(user_input["model_id"])

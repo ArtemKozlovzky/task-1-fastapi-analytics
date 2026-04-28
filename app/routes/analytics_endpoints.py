@@ -2,7 +2,7 @@ from fastapi import Depends, APIRouter, HTTPException, Path
 from sqlalchemy import select, func
 
 from app.models import ModelOrm, OfferOrm, MakeOrm
-from app.schemas import Statistics, StatisticsRequest, MakeStatistics
+from app.schemas import Statistics, StatisticsRequest, MakeStatistics, PriceDistributionResponse, PriceDistributionBucket
 from app.database import get_session, AsyncSession
 from app.utils.filters import to_single, to_list, apply_filters, extract_user_input
 
