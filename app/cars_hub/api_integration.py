@@ -1,11 +1,31 @@
 import os
-from fastapi import APIRouter
 from typing import Any, Dict, List
 from app.schemas import CarsHubRequest, OfferSchema
 
 import httpx
+from fastapi import APIRouter, BackgroundTasks
+from sqlalchemy import select
+from sqlalchemy.inspection import inspect
+from sqlalchemy.dialects.postgresql import insert
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime, date, timezone
+
+from app.schemas import CarsHubRequest, OfferSchema
+from app.database import get_session
+from app.models import (
+    MakeOrm,
+    ModelOrm,
+    ColorOrm,
+    BodyTypeOrm,
+    EngineTypeOrm,
+    TransmissionTypeOrm,
+    PublicationTypeOrm,
+    OfferOrm,
+    SellerOrm
+)
 
 router = APIRouter()
+
 
 class CarsHubClient:
     def __init__(self):
@@ -37,12 +57,16 @@ class CarsHubClient:
 
     async def get_makes(self) -> List[Dict]:
         return await self._get("/makes")
+
     async def get_models(self, make: str) -> List[Dict]:
         return await self._get(f"/makes/{make}/models")
+
     async def get_body_types(self) -> List[Dict]:
         return await self._get("/body-types")
+
     async def get_transmission_types(self) -> List[Dict]:
         return await self._get("/transmission-types")
+
     async def get_engine_types(self) -> List[Dict]:
         return await self._get("/engine-types")
 
@@ -54,13 +78,119 @@ class CarsHubClient:
         await self.client.aclose()
 
 
+    seller_id = seller_raw.get("id")
+    if not seller_id:
+        return None
+
+    try:
+        seller_id = int(seller_id)
+    except:
+        print("Invalid seller_id:", seller_id)
+        return None
+
+    stmt = select(SellerOrm).where(SellerOrm.seller_id == seller_id)
+    result = await session.execute(stmt)
+    obj = result.scalar_one_or_none()
+
+    if obj:
+        return obj
+
+    address_id = seller_raw.get("addressId")
+    if address_id is not None:
+        try:
+            address_id = int(address_id)
+        except:
+            address_id = None
+
+    phones = seller_raw.get("phoneFormattedNumbers")
+    if isinstance(phones, list):
+        phone_numbers = phones
+    elif isinstance(phones, str):
+        phone_numbers = [phones]
+    else:
+        phone_numbers = None
+
+    obj = SellerOrm(
+        seller_id=seller_id,
+        source_seller_id=seller_raw.get("sellId"),
+        seller_company_name=seller_raw.get("companyName"),
+        seller_contact_name=seller_raw.get("contactName"),
+        seller_sell_id=seller_raw.get("sellId"),
+        seller_email=seller_raw.get("email"),
+        seller_phone_formatted_numbers=phone_numbers,
+        seller_address_id=address_id,
+        seller_dealer_region=seller_raw.get("dealerRegion"),
+        seller_dealer_homepage_url=seller_raw.get("dealerHomepageUrl"),
+        seller_dealer_review_count=seller_raw.get("dealerReviewCount"),
+        seller_dealer_rating_average=seller_raw.get("dealerRatingAverage"),
+        seller_dealer_recommend_percentage=seller_raw.get("dealerRecommendPercentage"),
+        seller_link_car_methods=seller_raw.get("linkCarMethods"),
+        dealer_contact_person_phone=seller_raw.get("employer", {}).get("dealerContactPersonPhone"),
+        dealer_contact_person_email=seller_raw.get("employer", {}).get("dealerContactPersonEmail"),
+        dealer_contact_person_name=seller_raw.get("employer", {}).get("dealerContactPersonName"),
+        dealer_contact_person_position=seller_raw.get("employer", {}).get("dealerContactPersonPosition"),
+        seller_type_id=None,
+    )
+
+    session.add(obj)
+    await session.flush()
+    return obj
+
+
+def parse_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except:
+        pass
+    try:
+        return datetime.fromisoformat(value.replace("Z", "")).date()
+    except:
+        return None
+
+
+def parse_datetime(value):
+    if not value:
+        return None
+
+    value = value.replace("Z", "+00:00")
+
+    try:
+        dt = datetime.fromisoformat(value)
+    except:
+        try:
+            dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except:
+            return None
+
+    if isinstance(dt, date) and not isinstance(dt, datetime):
+        dt = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return dt
+
+
 def map_cars_hub_offer(raw: Dict[str, Any]) -> OfferSchema:
-
-    offer_id = raw.get("offerId")
-
+    first_reg = parse_date(raw.get("firstRegistration"))
+    pub_create = parse_datetime(raw.get("publicationCreateDate"))
+    pub_update = parse_datetime(raw.get("publicationUpdateDate"))
+    created = parse_datetime(raw.get("createdAt"))
+    imgs = raw.get("images")
+    if isinstance(imgs, str):
+        imgs = [imgs]
+    eq = raw.get("equipment")
+    if isinstance(eq, str):
+        eq = [eq]
+    year = raw.get("yearOfIssue")
+    try:
+        year = int(year) if year is not None else None
+    except:
+        year = None
     return OfferSchema(
-        offer_id=offer_id,
-        source_offer_id=f"cars_hub_{offer_id}" if offer_id else None,
+        source_offer_id=f"cars_hub_{raw.get('offerId')}",
         make=raw.get("make"),
         model=raw.get("model"),
         title=raw.get("title"),
@@ -72,20 +202,20 @@ def map_cars_hub_offer(raw: Dict[str, Any]) -> OfferSchema:
         engine_power_hp=raw.get("engineHorsePowerInHp"),
         mileage=raw.get("mileage"),
         transmission_type=raw.get("transmissionType"),
-        year_of_issue=raw.get("yearOfIssue"),
+        year_of_issue=year,
         vin=raw.get("vin"),
         original_price=raw.get("originalPrice"),
         tax_deductible=raw.get("taxDeductible"),
-        first_registration=raw.get("firstRegistration"),
-        publication_create_date=raw.get("publicationCreateDate"),
-        publication_update_date=raw.get("publicationUpdateDate"),
+        first_registration=first_reg,
+        publication_create_date=pub_create,
+        publication_update_date=pub_update,
         available_now=raw.get("availableNow"),
         publication_type=raw.get("publicationType"),
-        equipment=raw.get("equipment"),
+        equipment=eq,
         description=raw.get("description"),
         source_url=raw.get("sourceUrl"),
-        created_at=None,
-        image_urls=raw.get("images"),
+        created_at=created,
+        image_urls=imgs,
         city=raw.get("city"),
         country=raw.get("country"),
         seller_id=(raw.get("seller") or {}).get("id"),
@@ -121,7 +251,8 @@ def build_offers_payload(req: CarsHubRequest) -> Dict:
     payload = {
         "carModels": (
             [{"make": req.make, "model": req.model}]
-            if req.make and req.model else None
+            if req.make and req.model
+            else None
         ),
         "equipment": req.equipment or None,
         "toMileage": req.max_mileage,
@@ -133,26 +264,173 @@ def build_offers_payload(req: CarsHubRequest) -> Dict:
         "transmissionType": (
             [req.transmission_type] if req.transmission_type else None
         ),
-        "bodyType": (
-            [req.body_type] if req.body_type else None
-        ),
-        "engineType": (
-            [req.engine_type] if req.engine_type else None
-        ),
+        "bodyType": ([req.body_type] if req.body_type else None),
+        "engineType": ([req.engine_type] if req.engine_type else None),
         "taxDeductible": req.tax_deductible,
         "excludeSponsored": True,
         "excludeUnavailable": True,
-        "limit": req.limit,
+        "limit": min(req.limit or 50, 50),
     }
     return clean_payload(payload)
 
 
-async def run_cars_hub_etl(req: CarsHubRequest) -> List[OfferSchema]:
-    client = CarsHubClient()
-    try:
-        payload = build_offers_payload(req)
-        raw = await client.get_offers(payload)
-        offers_raw = raw.get("offers", [])
-        return [map_cars_hub_offer(o) for o in offers_raw]
-    finally:
-        await client.close()
+LOOKUP_FIELDS = {
+    MakeOrm: "make_name",
+    ModelOrm: "model_name",
+    ColorOrm: "color_name",
+    BodyTypeOrm: "body",
+    EngineTypeOrm: "engine",
+    TransmissionTypeOrm: "transmission",
+    PublicationTypeOrm: "publication",
+}
+
+
+async def get_or_create(session, model, value):
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+
+    field = LOOKUP_FIELDS[model]
+    mapper = inspect(model)
+    column = mapper.columns[field]
+
+    stmt = select(model).where(column == value)
+    result = await session.execute(stmt)
+    obj = result.scalar_one_or_none()
+
+    if obj:
+        return obj
+
+    obj = model(**{field: value})
+    session.add(obj)
+    await session.flush()
+    return obj
+
+
+async def get_or_create_model(session, model_name: str | None, make_obj: MakeOrm | None):
+    if model_name is None or make_obj is None:
+        return None
+
+    stmt = select(ModelOrm).where(
+        ModelOrm.model_name == model_name,
+        ModelOrm.make_id == make_obj.make_id,
+    )
+    result = await session.execute(stmt)
+    obj = result.scalar_one_or_none()
+
+    if obj:
+        return obj
+
+    obj = ModelOrm(model_name=model_name, make_id=make_obj.make_id)
+    session.add(obj)
+    await session.flush()
+    return obj
+
+
+async def lookup_all(raw: OfferSchema, session) -> Dict[str, Any]:
+    make = await get_or_create(session, MakeOrm, raw.make)
+    model = await get_or_create_model(session, raw.model, make)
+
+    color = await get_or_create(session, ColorOrm, raw.color)
+    body = await get_or_create(session, BodyTypeOrm, raw.body_type)
+    engine = await get_or_create(session, EngineTypeOrm, raw.engine_type)
+    transmission = await get_or_create(
+        session, TransmissionTypeOrm, raw.transmission_type
+    )
+    publication = await get_or_create(
+        session, PublicationTypeOrm, raw.publication_type
+    )
+
+    return {
+        "make_id": make.make_id if make else None,
+        "model_id": model.model_id if model else None,
+        "color_id": color.color_id if color else None,
+        "body_type_id": body.body_id if body else None,
+        "engine_type_id": engine.engine_type_id if engine else None,
+        "transmission_type_id": transmission.transmission_type_id
+        if transmission
+        else None,
+        "publication_type_id": publication.publication_type_id
+        if publication
+        else None,
+    }
+
+
+async def upsert_offers(offers: list[dict], session):
+    offer_columns = {col.name for col in OfferOrm.__table__.c}
+
+    for raw in offers:
+        mapped = map_cars_hub_offer(raw)
+        lookup_ids = await lookup_all(mapped, session)
+        data = mapped.model_dump()
+        data.update(lookup_ids)
+
+        db_data = {k: v for k, v in data.items() if k in offer_columns}
+
+        seller_raw = raw.get("seller")
+        seller_obj = await get_or_create_seller(session, seller_raw)
+
+        db_data["seller_id"] = seller_obj.seller_id if seller_obj else None
+
+        db_data.pop("offer_id", None)
+
+        if not db_data.get("source_offer_id"):
+            print("SKIP: no source_offer_id")
+            continue
+
+        update_data = {k: v for k, v in db_data.items() if k != "offer_id"}
+
+        stmt = (
+            insert(OfferOrm)
+            .values(**db_data)
+            .on_conflict_do_update(
+                    index_elements=["source_offer_id"],
+                    set_=update_data,
+            )
+        )
+        await session.execute(stmt)
+
+    await session.commit()
+
+
+async def run_cars_hub_etl(req: CarsHubRequest):
+    async with get_session() as session:
+        client = CarsHubClient()
+        try:
+            payload = build_offers_payload(req)
+            raw = await client.get_offers(payload)
+            offers_raw = raw.get("offers", [])
+
+            await upsert_offers(offers_raw, session)
+
+            mapped = [map_cars_hub_offer(o) for o in offers_raw]
+
+            final_data = []
+            for offer in mapped:
+                lookup_ids = await lookup_all(offer, session)
+                merged = offer.model_dump()
+                merged.update(lookup_ids)
+                final_data.append(merged)
+
+            return final_data
+
+        finally:
+            await client.close()
+
+
+scheduler = AsyncIOScheduler()
+
+
+@scheduler.scheduled_job("interval", minutes=30)
+async def scheduled_sync():
+    req = CarsHubRequest(limit=50)
+    await run_cars_hub_etl(req)
+
+
+def start_scheduler():
+    scheduler.start()
+
+
+@router.post("/internal/cars-hub/sync", status_code=202)
+async def sync_on_demand(req: CarsHubRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_cars_hub_etl, req)
+    return {"status": "accepted"}
