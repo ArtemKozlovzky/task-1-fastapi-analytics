@@ -1,6 +1,5 @@
 import os
 from typing import Any, Dict, List
-from app.schemas import CarsHubRequest, OfferSchema
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks
@@ -77,6 +76,9 @@ class CarsHubClient:
     async def close(self):
         await self.client.aclose()
 
+async def get_or_create_seller(session, seller_raw):
+    if not seller_raw:
+        return None
 
     seller_id = seller_raw.get("id")
     if not seller_id:
