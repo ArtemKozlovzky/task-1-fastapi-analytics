@@ -5,14 +5,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-db_url = URL.create(
-    drivername='postgresql+asyncpg',
-    username= os.getenv('TARGET_USER'),
-    password= os.getenv('TARGET_PASSWORD'),
-    host= os.getenv('TARGET_HOST'),
-    port=5432,
-    database= os.getenv('TARGET_DBNAME')
-)
+def is_docker():
+    return os.path.exists("/.dockerenv")
+
+if is_docker():
+    db_url = URL.create(
+        drivername='postgresql+asyncpg',
+        username=os.getenv('DOCKER_TARGET_USER'),
+        password=os.getenv('DOCKER_TARGET_PASSWORD'),
+        host=os.getenv('DOCKER_TARGET_HOST'),
+        port=5432,
+        database=os.getenv('DOCKER_TARGET_DBNAME')
+    )
+else:
+    db_url = URL.create(
+        drivername='postgresql+asyncpg',
+        username= os.getenv('TARGET_USER'),
+        password= os.getenv('TARGET_PASSWORD'),
+        host= os.getenv('TARGET_HOST'),
+        port=5432,
+        database= os.getenv('TARGET_DBNAME')
+    )
 
 engine = create_async_engine(
     db_url,
