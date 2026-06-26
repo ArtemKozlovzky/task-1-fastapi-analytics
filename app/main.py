@@ -1,3 +1,4 @@
+import uvicorn
 from fastapi import FastAPI
 from fastapi_pagination import add_pagination
 from app.routes import offers, metadata_endpoints, analytics_endpoints
@@ -9,3 +10,5 @@ app.include_router(offers.router)
 app.include_router(metadata_endpoints.router)
 app.include_router(analytics_endpoints.router)
 
+if __name__ == "__main__":
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)

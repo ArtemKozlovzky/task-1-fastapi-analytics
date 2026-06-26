@@ -122,3 +122,6 @@ class PriceDistributionBucket(BaseModel):
 
 class PriceDistributionResponse(BaseModel):
     buckets: list[PriceDistributionBucket]
+
+class ExportRequest(OffersRequest):
+    csv_limit: int | None
